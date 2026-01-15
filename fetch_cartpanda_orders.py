@@ -1,21 +1,4 @@
-"""
-CartPanda Orders Fetcher & PostgreSQL Loader
-------------------------------------------------------------------
-This script fetches order data from the CartPanda API (Paginated)
-and stores the raw JSON responses into a local PostgreSQL database.
 
-PREREQUISITES:
-1. Python installed.
-2. PostgreSQL installed and running locally.
-3. Libraries installed:
-   pip install requests psycopg2
-
-HOW TO RUN:
-1. Update the 'API_TOKEN' variable below with your actual CartPanda API Token.
-2. Run the script in your terminal:
-   python fetch_cartpanda_orders.py
-
-"""
 
 import requests
 import psycopg2
