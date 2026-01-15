@@ -24,7 +24,7 @@ def transform_and_insert():
     pages = cur.fetchall()
 
     insert_query = """
-        INSERT INTO data.orders_10057 (
+        INSERT INTO data.orders_10001 (
             unique_order_key,
             order_id,
             transaction_id,
@@ -94,7 +94,7 @@ def transform_and_insert():
     conn.commit()
     cur.close()
     conn.close()
-    print(f"Inserted {total_rows} rows into data.orders_10057")
+    print(f"Inserted {total_rows} rows into data.orders_10001")
 
 if __name__ == "__main__":
     transform_and_insert()
