@@ -4,16 +4,24 @@ import requests
 import psycopg2
 import json
 import time
+import os
 from psycopg2 import sql
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # --- CONFIGURATION ---
-API_TOKEN = '5rXqyfFBFDKzHOXWy0UVvFhWIjqatcLmq8SE15mGmSQHFSYvXdCvfZ8HoIjB'  # <--- REPLACE THIS
+API_TOKEN = os.getenv('CARTPANDA_API_KEY')
+if not API_TOKEN:
+    raise ValueError("Error: CARTPANDA_API_KEY environment variable is missing. Please check your .env file.")
+
 API_BASE_URL = 'https://accounts.cartpanda.com/api/v3/aya-marketing/orders'
 
 DB_CONFIG = {
     'dbname': 'postgres',
     'user': 'postgres',
-    'password': 'postgres123',
+    'password': os.getenv('DB_PASSWORD'),
     'host': 'localhost',
     'port': '5432'
 }
