@@ -1,11 +1,16 @@
 import psycopg2
 import json
+import os
 from datetime import datetime
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 DB_CONFIG = {
     'dbname': 'postgres',
     'user': 'postgres',
-    'password': 'postgres123',
+    'password': os.getenv('DB_PASSWORD'),
     'host': 'localhost',
     'port': '5432'
 }
