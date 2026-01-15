@@ -16,7 +16,7 @@ API_TOKEN = os.getenv('CARTPANDA_API_KEY')
 if not API_TOKEN:
     raise ValueError("Error: CARTPANDA_API_KEY environment variable is missing. Please check your .env file.")
 
-API_BASE_URL = 'https://accounts.cartpanda.com/api/v3/aya-marketing/orders'
+API_BASE_URL = "https://accounts.cartpanda.com/api/v3/aya-marketing/orders?include=items,transactions,customer"
 
 DB_CONFIG = {
     'dbname': 'postgres',
