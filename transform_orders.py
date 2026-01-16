@@ -16,22 +16,16 @@ DB_CONFIG = {
 def transform_and_insert():
     conn = psycopg2.connect(**DB_CONFIG)
     cur = conn.cursor()
-
     print("Connected to database.")
 
-    # --- SCHEMA FIX: Ensure unique_order_key is TEXT ---
-    # The target table defines unique_order_key as BIGINT, but we generate a 
-    # composite string key (Order-Item). We must alter the column to TEXT.
-    try:
-        cur.execute("ALTER TABLE data.orders_10001 ALTER COLUMN unique_order_key TYPE TEXT;")
-        conn.commit()
-    except Exception as e:
-        conn.rollback()
-        print(f"Notice: Could not alter column type (might already be correct): {e}")
-    # ---------------------------------------------------
+    # ------------------------------------------------------------
+    # Ensure schema exists
+    # ------------------------------------------------------------
+    cur.execute("CREATE SCHEMA IF NOT EXISTS data;")
+    conn.commit()
 
     # ------------------------------------------------------------
-    # 1. Read all target columns from replica table
+    # Load target columns dynamically from table
     # ------------------------------------------------------------
     cur.execute("""
         SELECT column_name
@@ -42,10 +36,10 @@ def transform_and_insert():
     """)
 
     TARGET_COLUMNS = [row[0] for row in cur.fetchall()]
-    print(f"Loaded {len(TARGET_COLUMNS)} target columns.")
+    print(f"Loaded {len(TARGET_COLUMNS)} columns from data.orders_10001")
 
     # ------------------------------------------------------------
-    # 2. Build dynamic INSERT statement
+    # Build INSERT statement dynamically
     # ------------------------------------------------------------
     insert_query = f"""
         INSERT INTO data.orders_10001 ({','.join(TARGET_COLUMNS)})
@@ -54,19 +48,29 @@ def transform_and_insert():
     """
 
     # ------------------------------------------------------------
-    # 3. Fetch raw JSON pages
+    # Fetch raw JSON pages
     # ------------------------------------------------------------
     cur.execute("SELECT data FROM raw.orders;")
     pages = cur.fetchall()
 
     total_rows = 0
 
-    # Helper: create empty row template
-    def build_empty_row():
+    # Helper: empty row template
+    def empty_row():
         return {col: None for col in TARGET_COLUMNS}
 
+    # Helper: clean decimals
+    def clean_decimal(val):
+        if val is None:
+            return None
+        if isinstance(val, (int, float)):
+            return val
+        if isinstance(val, str):
+            return val.replace(",", "").strip()
+        return None
+
     # ------------------------------------------------------------
-    # 4. Transform raw JSON → target structure
+    # Transform JSON → Table
     # ------------------------------------------------------------
     for page in pages:
         page_json = page[0]
@@ -74,61 +78,87 @@ def transform_and_insert():
 
         for order in orders:
             order_id = order.get("id")
-            email = order.get("email")
-            currency = order.get("currency")
             created_at = order.get("created_at")
-
-            transactions = order.get("transactions", [])
-            transaction_id = transactions[0].get("id") if transactions else None
-
-            financial_status = order.get("financial_status")
-            payment_status = order.get("payment_status")
-            order_status = financial_status or payment_status
-
-            is_approved = (financial_status == "paid")
-            is_refund = (financial_status == "refunded")
-            is_cancelled = (order.get("cancelled_at") is not None)
+            currency = order.get("currency")
+            customer = order.get("customer") or {}
+            bill_addr = order.get("billing_address") or {}
+            ship_addr = order.get("shipping_address") or {}
+            transactions = order.get("transactions") or []
+            first_txn = transactions[0] if transactions else {}
 
             items = order.get("line_items", [])
 
             for item in items:
                 item_id = item.get("id")
-                product_name = item.get("title") or item.get("name")
-                price = item.get("price")
-                quantity = item.get("quantity")
 
-                unique_order_key = f"{order_id}-{item_id}"
+                row = empty_row()
 
-                # Build full row with NULL defaults
-                row = build_empty_row()
+                # Required primary key
+                row["unique_order_key"] = f"{order_id}-{item_id}"
 
-                # Fill available mapped fields
-                row["unique_order_key"] = unique_order_key
+                # Core order fields
                 row["order_id"] = str(order_id)
-                row["transaction_id"] = str(transaction_id) if transaction_id else None
-                row["bill_email"] = email
-                row["product_name"] = product_name
-                row["order_total"] = price
-                row["quantity"] = quantity
+                row["transaction_id"] = str(first_txn.get("id"))
+                row["customer_number"] = str(customer.get("id"))
                 row["currency"] = currency
-                row["order_status"] = order_status
-                row["is_approved"] = is_approved
-                row["is_refund"] = is_refund
-                row["is_cancelled"] = is_cancelled
-                row["created_on"] = created_at
+                row["created_at"] = created_at
 
-                # Execute insert
+                # Product
+                row["product_id"] = str(item.get("product_id"))
+                row["product_name"] = item.get("name") or item.get("title")
+
+                # Financial
+                row["total_price"] = clean_decimal(order.get("total_price"))
+                row["subtotal_price"] = clean_decimal(order.get("subtotal_price"))
+                row["total_tax"] = clean_decimal(order.get("total_tax"))
+                row["line_items_count"] = order.get("line_items_count")
+
+                # Status fields
+                row["financial_status"] = order.get("financial_status")
+                row["fulfillment_status"] = order.get("fulfillment_status")
+                row["payment_status"] = order.get("payment_status")
+
+                # Billing info
+                row["bill_first"] = bill_addr.get("first_name")
+                row["bill_last"] = bill_addr.get("last_name")
+                row["bill_email"] = order.get("email")
+                row["bill_phone"] = bill_addr.get("phone")
+                row["bill_address1"] = bill_addr.get("address1")
+                row["bill_address2"] = bill_addr.get("address2")
+                row["bill_city"] = bill_addr.get("city")
+                row["bill_state"] = bill_addr.get("province")
+                row["bill_zip"] = bill_addr.get("zip")
+                row["bill_country"] = bill_addr.get("country")
+
+                # Shipping info
+                row["ship_first"] = ship_addr.get("first_name")
+                row["ship_last"] = ship_addr.get("last_name")
+                row["ship_address1"] = ship_addr.get("address1")
+                row["ship_address2"] = ship_addr.get("address2")
+                row["ship_city"] = ship_addr.get("city")
+                row["ship_state"] = ship_addr.get("province")
+                row["ship_zip"] = ship_addr.get("zip")
+                row["ship_country"] = ship_addr.get("country")
+
+                # Flags
+                row["is_test"] = bool(order.get("test"))
+                row["is_cancelled"] = order.get("cancelled_at") is not None
+                row["is_refund"] = order.get("financial_status") == "refunded"
+                row["is_chargeback"] = order.get("chargeback_at") is not None
+                row["is_approved"] = order.get("financial_status") == "paid"
+
+                # Insert row
                 cur.execute(insert_query, [row[col] for col in TARGET_COLUMNS])
                 total_rows += 1
 
     # ------------------------------------------------------------
-    # 5. Commit and close
+    # Finish
     # ------------------------------------------------------------
     conn.commit()
     cur.close()
     conn.close()
 
-    print(f"Inserted {total_rows} rows into data.orders_10001 ✅")
+    print(f"\nInserted {total_rows} rows into data.orders_10001 ✅")
 
 
 # ------------------------------------------------------------
